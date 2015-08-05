@@ -1,10 +1,5 @@
--- We depend on lua-resty-http as a git submodule (for easy one-clone
--- install).  This means we have to do just a little black magic with Lua's
--- package loader to get it hooked up properly.
-http_headers = require("unfancy.ext_lib.lua-resty-http.lib.resty.http_headers")
-package.loaded["resty.http_headers"] = http_headers
-http = require("unfancy.ext_lib.lua-resty-http.lib.resty.http")
-package.loaded["resty.http"] = http
+require("unfancy.ext_lib").prepare("lua-resty-http")
+http = require("resty.http")
 
 helpers = require("unfancy.helpers")
 cjson = require("cjson")
@@ -76,6 +71,10 @@ function API:run_chain_res(chain_name, ctx, req, res)
     end
 end
 
+local function timer_after_response(prem, api, ctx, req, res)
+    API.run_chain_res(api, "after_response", ctx, req, res)
+end
+
 function API:run()
     local ctx = ngx.ctx
     local req = ngx.req
@@ -93,7 +92,7 @@ function API:run()
     client:set_keepalive()
 
     if #self.plugin_chains.after_response > 0 then
-        ngx.timer.at(0, API.run_chain_res, self, "after_response", ctx, req, res)
+        ngx.timer.at(0, timer_after_response, api, ctx, req, res)
     end
 end
 

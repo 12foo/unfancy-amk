@@ -93,8 +93,7 @@ config.apis["my_api"] = {
             {
                 -- A plugin that modifies responses on keyless access and
                 -- injects quota warning entries into the JSON.
-                module = "plugins.keyless_warning",
-                options = nil
+                module = "plugins.keyless_warning"
             }
         },
         -- (The response is sent back at this point; the user is done with us here.)

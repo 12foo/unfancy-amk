@@ -1,3 +1,12 @@
 [submodule "unfancy/ext_lib/lua-resty-http"]
 	path = unfancy/ext_lib/lua-resty-http
-	url = https://github.com/pintsized/lua-resty-http
+	url = https://github.com/pintsized/lua-resty-http.git
+[submodule "unfancy/ext_lib/lua-resty-jwt"]
+	path = unfancy/ext_lib/lua-resty-jwt
+	url = https://github.com/SkyLothar/lua-resty-jwt.git
+[submodule "unfancy/ext_lib/lua-resty-hmac"]
+	path = unfancy/ext_lib/lua-resty-hmac
+	url = https://github.com/jkeys089/lua-resty-hmac.git
+[submodule "unfancy/ext_lib/pgmoon"]
+	path = unfancy/ext_lib/pgmoon
+	url = https://github.com/leafo/pgmoon.git
