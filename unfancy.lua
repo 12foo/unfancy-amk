@@ -7,14 +7,14 @@ local api_cache = {}
 local Unfancy = {}
 
 --- Plug your API into nginx.
--- @param api_name An API name that must be defined in unfancy_config.lua.
+-- @param api_name Name of a file in config/, without .lua.
 function Unfancy.api(api_name)
     local api = api_cache[api_name]
     if not api then
-        local api_config = config.apis[api_name]
-        if not api_config then
+        local loaded, api_config = pcall(require, "api." .. api_name)
+        if not loaded then
             ngx.status = 500
-            ngx.print(cjson.encode({ error = "API '" .. api_name .. "' not found in configuration." }))
+            ngx.print(cjson.encode({ error = "API config '" .. api_name .. ".lua' not found in api/." }))
             ngx.exit(200)
         end
         api = api_builder.build(api_config)
