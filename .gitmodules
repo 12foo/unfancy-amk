@@ -10,9 +10,3 @@
 [submodule "unfancy/ext_lib/pgmoon"]
 	path = unfancy/ext_lib/pgmoon
 	url = https://github.com/leafo/pgmoon.git
-[submodule "unfancy/ext_lib/lua-lockbox"]
-	path = unfancy/ext_lib/lua-lockbox
-	url = https://github.com/somesocks/lua-lockbox.git
-[submodule "unfancy/ext_lib/lua-resty-nettle"]
-	path = unfancy/ext_lib/lua-resty-nettle
-	url = https://github.com/bungle/lua-resty-nettle.git

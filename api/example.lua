@@ -5,7 +5,8 @@ return {
     error_reports = nil,
 
     -- Upstream API servers: where your API actually lives.
-    -- Unfancy will randomly distribute requests between them.
+    -- Unfancy will randomly distribute requests between them. It doesn't
+    -- do health checks (yet).
     upstreams = {
         "http://upstream1:80",
         "http://upstream2:80"
@@ -40,9 +41,13 @@ return {
         check_headers = { "Authorization" },
         check_query = { "api_key", "apikey", "user_key" },
 
-        -- At least one of these must return a valid key and optionally the name
+        -- At least one of these must validate the authbit/key and return the name
         -- of a quota type for the request to proceed (if keyless isn't enabled).
-        -- If multiple providers are configured, they will be tried in parallel.
+        -- If multiple providers are configured, they will be tried one after another.
+        --
+        -- If this API configuration is plugged into the developer portal, the portal
+        -- will scan this list in order, and use the first provider that exposes a
+        -- full set of user management functions for its user management.
         providers = {
             {
                 module = "plugins.auth.postgresql",
