@@ -35,4 +35,13 @@ function Helpers.get_redis_or(error_msg, ctx)
     return r
 end
 
+if config.password_hashing then
+    Helpers.hash_password = config.password_hashing.hash_password
+    Helpers.check_password = config.password_hashing.check_password
+else
+    local builtin_hashing = require("unfancy.password_hashing")
+    Helpers.hash_password = builtin_hashing.hash_password
+    Helpers.check_password = builtin_hashing.builtin_check_password
+end
+
 return Helpers
