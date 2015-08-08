@@ -11,6 +11,7 @@ return function(options, api_config)
 
     local AuthMethod = {}
 
+    local options = options or {}
     local headers = options.headers or { "Authorization" }
 
     local function explode_header(header)
@@ -27,7 +28,7 @@ return function(options, api_config)
 
     function AuthMethod.detect(ctx, req)
         local req_headers = ngx.req.get_headers()
-        for i, header in ipairs(self.headers) do
+        for i, header in ipairs(headers) do
             if req_headers[header] and req_headers[header]:sub(1, 9) == "Signature" then
                 local h = explode_header(req_headers[header])
                 if h.keyId and h.algorithm and h.signature and req_headers["Date"] then

@@ -16,6 +16,7 @@ return function(options, api_config)
 
     local AuthMethod = {}
 
+    local options = options or {}
     local headers = options.headers or { "Authorization" }
     local get_params = options.get_params
     local post_params = options.post_params
@@ -24,7 +25,7 @@ return function(options, api_config)
 
     function AuthMethod.detect(ctx, req)
         local req_headers = ngx.req.get_headers()
-        for i, header in ipairs(self.headers) do
+        for i, header in ipairs(headers) do
             if req_headers[header] then
                 return headers[header], nil
             end
@@ -68,5 +69,7 @@ return function(options, api_config)
         local kid = str.to_hex(resty_random.bytes(32))
         return kid, { kind = "Token" }
     end
+
+    return AuthMethod
 
 end

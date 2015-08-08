@@ -8,28 +8,9 @@ local API = {}
 local API_mt = { __index = API }
 
 function API:init_context(ctx, req)
+    ctx.path = ngx.var[1]
     ctx.cost = 1
-end
-
-function API:find_auth_bit(ctx, req)
-    local headers = ngx.req.get_headers()
-    for i, header in ipairs(self.check_headers) do
-        if headers[header] then
-            return headers[header]
-        end
-    end
-    if not self.check_query or #self.check_query == 0 then return nil end
-    local params = ngx.req.get_uri_args()
-    for i, param in ipairs(self.check_query) do
-        if params[param] then
-            return params[param]
-        end
-    end
-    return nil
-end
-
-function API:perform_auth(ctx, req, auth)
-    ctx.phase = "auth"
+    ctx.api_name = self.name
 end
 
 function API:quota_check(ctx, req)
@@ -47,7 +28,7 @@ function API:upstream(ctx, req)
     local ok, err = client:connect(upstream.host, upstream.port)
     if not ok then
         ngx.status = 503
-        ngx.print(cjson.encode({ error = "Could not connect to upstream API server." }))
+        ngx.print(cjson.encode({ error = "Could not connect to upstream API server: " .. err .. "." }))
         ngx.exit(200)
     end
     client:set_timeout(5000)
@@ -63,7 +44,7 @@ function API:run_chain(chain_name, ctx, req)
     end
 end
 
-function API:run_chain_res(chain_name, ctx, req, res)
+function API.run_chain_res(self, chain_name, ctx, req, res)
     ctx.phase = chain_name
     if #self.plugin_chains[chain_name] == 0 then return end
     for ci, plugin in ipairs(self.plugin_chains[chain_name]) do
@@ -71,17 +52,73 @@ function API:run_chain_res(chain_name, ctx, req, res)
     end
 end
 
-local function timer_after_response(prem, api, ctx, req, res)
-    API.run_chain_res(api, "after_response", ctx, req, res)
+local function timer_after_response(prem, chain, ctx, req, res)
+    for i, plugin in ipairs(chain) do
+        plugin.run(ctx, req, res)
+    end
+end
+
+local function auth_abort(error_msg)
+    ngx.status = 403
+    ngx.print(cjson.encode({ error = error_msg }))
+    ngx.exit(200)
+end
+
+function API:run_auth(ctx, req)
+    for ami, auth_method in ipairs(self.auth_methods) do
+        local kid, detected = auth_method.detect(ctx, req)
+        if kid then
+
+            -- see if we're caching this auth in redis
+            local redis = helpers.get_redis()
+            local cached_key = redis:get("auth_cache:" .. kid)
+            redis:set_keepalive()
+            if cached_key and key ~= ngx.null then
+                ctx.key = cjson.decode(cached_key)
+                ctx.quota = self.quotas[ctx.key.quota] or self.quotas.default
+                return
+            end
+
+            -- sadly not-- reauth!
+            for asi, auth_store in ipairs(self.auth_stores) do
+                local kobj = auth_store.get_key(kid, self.auth_method_names[ami])
+                if kobj then
+                    if auth_method.verify then
+                        if not auth_method.verify(detected, kobj, self.auth_store_names[asi]) then
+                            return auth_abort("This API is access restricted. Your key was found, but not valid.")
+                        end 
+                    end
+                    ctx.key = kobj
+                    ctx.quota = self.quotas[ctx.key.quota] or self.quotas.default
+
+                    -- cache before we return
+                    redis = helpers.get_redis()
+                    redis:setex("auth_cache:" .. kid, self.auth_cache_period * 60, cjson.encode(kobj))
+                    return
+                end
+            end
+            return auth_abort("This API is access restricted. Your key was not found.")
+        end
+    end
+    if self.keyless_allowed then
+        ctx.keyless = true
+        ctx.quota = self.quotas.keyless or self.quotas.default
+        ctx.key = nil
+        return
+    else
+        return auth_abort("This API is access restricted. No auth parameters found in your request.")
+    end
 end
 
 function API:run()
-    local ctx = ngx.ctx
+    -- might want to use ngx.ctx here instead of local table. check performance
+    -- when writing to ngx.ctx.
+    local ctx = {}
     local req = ngx.req
     self:init_context(ctx, req)
 
-    local auth = self:find_auth_bit(ctx, req)
-    self:perform_auth(ctx, req, auth)
+    self:run_auth(ctx, req)
+
     self:run_chain("after_auth", ctx, req)
     self:quota_check(ctx, req)
 
@@ -92,13 +129,34 @@ function API:run()
     client:set_keepalive()
 
     if #self.plugin_chains.after_response > 0 then
-        ngx.timer.at(0, timer_after_response, api, ctx, req, res)
+        ngx.timer.at(0, timer_after_response, self.plugin_chains.after_response, ctx, req, res)
     end
 end
 
 local APIBuilder = {}
 
 local chain_names = { "after_auth", "before_upstream", "after_upstream", "after_response" }
+
+local function build_plugin(pconfig, api_config)
+    local ok, pbuilder = pcall(require, pconfig.module)
+    if not ok then
+        ngx.status = 500
+        ngx.print(cjson.encode({ error = "API build error. Plugin not found: '" .. pconfig.module .. "'."}))
+        ngx.exit(200)
+    end
+    local plugin, err = pbuilder(pconfig.options)
+    if err then
+        ngx.status = 500
+        ngx.print(cjson.encode({ error = "API build error in plugin '" .. pconfig.module .. "': " .. err }))
+        ngx.exit(200)
+    end
+    if not plugin then
+        ngx.status = 500
+        ngx.print(cjson.encode({ error = "API build error. Plugin '" .. pconfig.module .. "' did not build anything." }))
+        ngx.exit(200)
+    end
+    return plugin
+end
 
 function APIBuilder.build(api_config)
     local api = {}
@@ -107,34 +165,57 @@ function APIBuilder.build(api_config)
     api.upstreams = {}
     for ui, url in ipairs(api_config.upstreams) do
         local url, n = string.gsub(url, "http://", "")
-        local host, port
-        string.gsub(url, ":%(d+)", function(portstr) port = tonumber(portstr) end)
-        string.gsub(url, "^(.-):?", function(hoststr) port = hoststr end)
+        local host
+        local port = 80
+        string.gsub(url, ":(%d+)", function(portstr) port = tonumber(portstr) end)
+        string.gsub(url, "^(.-)[:/$]", function(hoststr) host = hoststr end)
         table.insert(api.upstreams, { host = host, port = port })
     end
 
-    api.check_headers = api_config.auth.check_headers or { "Authorization" }
-    api.check_query = api_config.auth.check_query or { "api_key" }
+    api.auth_cache_period = api_config.auth_cache_period or 10
+    api.keyless_allowed = api_config.keyless_allowed or false
+
+    api.quotas = api_config.quotas
+    if not api.quotas.default then
+        ngx.status = 500
+        ngx.print(cjson.encode({ error = "Your API configuration must define at least a default quota." }))
+        ngx.exit(200)
+    end
+
+    api.auth_methods = {}
+    api.auth_method_names = {}
+    for ami, amconfig in ipairs(api_config.auth.auth_methods) do
+        local plugin = build_plugin(amconfig, api_config)
+        if not plugin.detect then
+            ngx.status = 500
+            ngx.print(cjson.encode({ error = "API build error. Auth method '" .. amconfig.module .. "' does not have a 'detect' function." }))
+            ngx.exit(200)
+        end
+        table.insert(api.auth_methods, plugin)
+        table.insert(api.auth_method_names, amconfig.module)
+    end
+
+    api.auth_stores = {}
+    api.auth_store_names = {}
+    for asi, asconfig in ipairs(api_config.auth.auth_stores) do
+        local plugin = build_plugin(asconfig, api_config)
+        if not plugin.get_key then
+            ngx.status = 500
+            ngx.print(cjson.encode({ error = "API build error. Auth store '" .. asconfig.module .. "' does not have a 'get_key' function." }))
+            ngx.exit(200)
+        end
+        table.insert(api.auth_stores, plugin)
+        table.insert(api.auth_store_names, asconfig.module)
+    end
 
     api.plugin_chains = {}
     for ci, chain_name in ipairs(chain_names) do
         local chain = {}
         for pi, pconfig in ipairs(api_config.plugins[chain_name]) do
-            local ok, pbuilder = pcall(require, pconfig.module)
-            if not ok then
+            local plugin = build_plugin(pconfig, api_config)
+            if not plugin.run then
                 ngx.status = 500
-                ngx.print(cjson.encode({ error = "API build error. Plugin not found: '" .. pconfig.module .. "'."}))
-                ngx.exit(200)
-            end
-            local plugin, err = pbuilder(pconfig.options)
-            if err then
-                ngx.status = 500
-                ngx.print(cjson.encode({ error = "API build error in plugin '" .. pconfig.module .. "': " .. err }))
-                ngx.exit(200)
-            end
-            if not plugin then
-                ngx.status = 500
-                ngx.print(cjson.encode({ error = "API build error. Plugin '" .. pconfig.module .. "' did not build anything." }))
+                ngx.print(cjson.encode({ error = "API build error. Plugin '" .. pconfig.module .. "' does not have a 'run' function." }))
                 ngx.exit(200)
             end
             table.insert(chain, plugin)

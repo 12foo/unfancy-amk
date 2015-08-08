@@ -13,6 +13,7 @@ return function(options, api_config)
 
     local Plugin = {}
 
+    local options = options or {}
     local native_allowed = options.native_allowed or { "HMAC" }
     local native_only = options.native_only or false
 
@@ -43,5 +44,7 @@ return function(options, api_config)
             ngx.exit(200)
         end
     end
+
+    return Plugin
 
 end

@@ -10,6 +10,7 @@ local str = require("resty.string")
 return function(options, api_config)
     local Plugin = {}
 
+    local options = options or {}
     local pf = (options.prefix or "redis-auth") .. ":"
 
     -- The following function must be supported by every auth store.
@@ -25,7 +26,7 @@ return function(options, api_config)
     function Plugin.get_key(kid, auth_method)
         local r = helpers.get_redis()
         local k = r:get(pf .. "key:" .. kid)
-        r:keepalive()
+        r:set_keepalive()
         if not k or k == ngx.null then
             return nil
         end
@@ -52,7 +53,7 @@ return function(options, api_config)
         }
         local r = helpers.get_redis()
         r:setex(pf .. "user:" .. email, 8*60*60, cjson.encode(user))
-        r:keepalive()
+        r:set_keepalive()
         return email, nil
     end
 
@@ -69,7 +70,7 @@ return function(options, api_config)
         if not u or u == ngx.null then return end
         u.active = true
         r:set(pf .. "user:" .. email, cjson.encode(user))
-        r:keepalive()
+        r:set_keepalive()
         return nil
     end
 
@@ -102,7 +103,7 @@ return function(options, api_config)
         local r = helpers.get_redis()
         r:set(pf .. "key:" .. kid, k)
         r:sadd(pf .. "user:" .. uid .. ":keys", kid)
-        r:keepalive()
+        r:set_keepalive()
         return kid, nil
     end
 

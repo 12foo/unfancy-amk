@@ -8,8 +8,7 @@ return {
     -- Unfancy will randomly distribute requests between them. It doesn't
     -- do health checks (yet).
     upstreams = {
-        "http://upstream1:80",
-        "http://upstream2:80"
+        "http://127.0.0.1:8081"
     },
 
     -- Quota types. Quotas may be defined per key or per IP and will deny
@@ -56,20 +55,7 @@ return {
         -- first store in this list with management support to generate an instant
         -- self-service portal API for developers.
         auth_stores = {
-            {
-                module = "plugins.auth_stores.postgresql",
-                options = {
-                    connection = {
-                        host = "127.0.0.1",
-                        port = 5432,
-                        db = "dbname",
-                        user = "dbuser",
-                        password = "dbpassword",
-                        ssl = false
-                    },
-                    table_names = { users = "api_users", keys = "api_keys" }
-                }
-            }
+            { module = "plugins.auth_stores.redis" }
         }
     },
 
