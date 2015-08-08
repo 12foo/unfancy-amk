@@ -4,16 +4,71 @@ http = require("resty.http")
 helpers = require("unfancy.helpers")
 cjson = require("cjson")
 
+-- cribbed from lua-resty-http
+-- http://www.w3.org/Protocols/rfc2616/rfc2616-sec13.html#sec13.5.1
+local HOP_BY_HOP_HEADERS = {
+    ["connection"]          = true,
+    ["keep-alive"]          = true,
+    ["proxy-authenticate"]  = true,
+    ["proxy-authorization"] = true,
+    ["te"]                  = true,
+    ["trailers"]            = true,
+    ["transfer-encoding"]   = true,
+    ["upgrade"]             = true,
+    ["content-length"]      = true, -- Not strictly hop-by-hop, but Nginx will deal
+                                    -- with this (may send chunked for example).
+}
+
 local API = {}
 local API_mt = { __index = API }
 
 function API:init_context(ctx, req)
+    ctx.remote_addr = ngx.var.remote_addr
     ctx.path = ngx.var[1]
     ctx.cost = 1
     ctx.api_name = self.name
 end
 
+local function auth_abort(error_msg)
+    ngx.status = 403
+    ngx.print(cjson.encode({ error = error_msg }))
+    ngx.exit(200)
+end
+
+function over_quota(r, key, cost, max, minutes)
+    local current = r:get(key)
+    if current == ngx.null then
+        current = 0
+        r:setex(key, minutes * 60, 0)
+    end
+    if current + cost > max then return true end
+    r:incrby(key, cost)
+    return false
+end
+
 function API:quota_check(ctx, req)
+    local exceeded = false
+    local redis = helpers.get_redis()
+
+    local kid
+    if ctx.kid then kid = ctx.kid
+    else kid = "keyless" end
+
+    if ctx.quota.per_ip and over_quota(redis, "quota:" .. kid .. ":per_ip:" .. ctx.remote_addr,
+        ctx.cost, ctx.quota.per_ip.max, ctx.quota.per_ip.minutes) then exceeded = true end
+    if ctx.quota.per_key and over_quota(redis, "quota:" .. kid,
+        ctx.cost, ctx.quota.per_key.max, ctx.quota.per_key.minutes) then exceeded = true end
+
+    redis:set_keepalive()
+
+    if exceeded then
+        ngx.status = 403
+        ngx.print(cjson.encode({
+            error = "Quota exceeded. Please wait a little before trying new requests.",
+            limits = ctx.quota
+        }))
+        ngx.exit(200)
+    end
 end
 
 function API:upstream(ctx, req)
@@ -58,12 +113,6 @@ local function timer_after_response(prem, chain, ctx, req, res)
     end
 end
 
-local function auth_abort(error_msg)
-    ngx.status = 403
-    ngx.print(cjson.encode({ error = error_msg }))
-    ngx.exit(200)
-end
-
 function API:run_auth(ctx, req)
     for ami, auth_method in ipairs(self.auth_methods) do
         local kid, detected = auth_method.detect(ctx, req)
@@ -74,6 +123,7 @@ function API:run_auth(ctx, req)
             local cached_key = redis:get("auth_cache:" .. kid)
             redis:set_keepalive()
             if cached_key and key ~= ngx.null then
+                ctx.kid = kid
                 ctx.key = cjson.decode(cached_key)
                 ctx.quota = self.quotas[ctx.key.quota] or self.quotas.default
                 return
@@ -88,6 +138,7 @@ function API:run_auth(ctx, req)
                             return auth_abort("This API is access restricted. Your key was found, but not valid.")
                         end 
                     end
+                    ctx.kid = kid
                     ctx.key = kobj
                     ctx.quota = self.quotas[ctx.key.quota] or self.quotas.default
 
@@ -110,6 +161,17 @@ function API:run_auth(ctx, req)
     end
 end
 
+local function get_body(self)
+    if not self.body then
+        self.body = self:read_body()
+    end
+    return self.body
+end
+
+local function set_body(self, body)
+    self.body = body
+end
+
 function API:run()
     -- might want to use ngx.ctx here instead of local table. check performance
     -- when writing to ngx.ctx.
@@ -124,8 +186,22 @@ function API:run()
 
     self:run_chain("before_upstream", ctx, req)
     local client, res = self:upstream(ctx, req)
+    if #self.plugin_chains.after_response > 0 then
+        res.get_body = get_body
+        res.set_body = set_body
+    end
     self:run_chain_res("after_upstream", ctx, req, res)
-    client:proxy_response(res)
+    if res.body then
+        ngx.status = res.status
+        for k,v in pairs(res.headers) do
+            if not HOP_BY_HOP_HEADERS[string.lower(k)] then
+                ngx.header[k] = v
+            end
+        end
+        ngx.print(res.body)
+    else
+        client:proxy_response(res)
+    end
     client:set_keepalive()
 
     if #self.plugin_chains.after_response > 0 then

@@ -18,7 +18,7 @@ return {
             per_ip = { max = 30, minutes = 2 }
         },
         keyless = {
-            per_ip = { max = 50, minutes = 5 }
+            per_ip = { max = 10, minutes = 2 }
         },
         high_volume = {
             per_key = { max = 10000, minutes = 60 },
