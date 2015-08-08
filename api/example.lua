@@ -16,41 +16,48 @@ return {
     -- requests once either of them is exhausted.
     quotas = {
         default = {
-            per_key = nil, 
             per_ip = { max = 30, minutes = 2 }
+        },
+        keyless = {
+            per_ip = { max = 50, minutes = 5 }
         },
         high_volume = {
             per_key = { max = 10000, minutes = 60 },
-            per_ip = nil 
         }
     },
-    
-    -- Whether to enable keyless access to your API and if so, the
-    -- allowed quota per IP/minutes.
-    keyless = {
-        enabled = false,
-        per_ip = { max = 50, minutes = 5 }
-    },
 
+    -- Whether to allow keyless access. If true, requests without keys have the
+    -- "keyless" quota applied if it exists, otherwise the "default" quota.
+    keyless_allowed = true,
+    
     -- Authorization bits and providers.
     auth = {
 
-        -- Override which headers and GET query parameters to treat as authorization
-        -- bits. These will be checked in order, headers first. Both are optional
-        -- (Unfancy defaults to checking the Authorization header and api_key param).
-        check_headers = { "Authorization" },
-        check_query = { "api_key", "apikey", "user_key" },
+        -- How long to cache authentications, i.e. how long to wait before re-validating
+        -- any given key from a backing store (in minutes).
+        auth_cache_period = 10,
 
-        -- At least one of these must validate the authbit/key and return the name
-        -- of a quota type for the request to proceed (if keyless isn't enabled).
-        -- If multiple providers are configured, they will be tried one after another.
+        -- Auth method plugins try to detect the auth method from an incoming request.
+        -- They are run in order. If they apply to a request, they return a key ID that
+        -- is then looked up in the backing auth stores (below).
+        auth_methods = {
+            -- Straight-forward API key token.
+            { module = "plugins.auth_methods.token", options = { get_params = { "api_key" } } },
+            -- HMAC token.
+            { module = "plugins.auth_methods.hmac" }
+        },
+
+        -- All auth stores can authenticate a given key and return a quota for the
+        -- incoming request. They are tried in order until one authenticates. If
+        -- none does, the request is denied.
         --
-        -- If this API configuration is plugged into the developer portal, the portal
-        -- will scan this list in order, and use the first provider that exposes a
-        -- full set of user management functions for its user management.
-        providers = {
+        -- Some auth stores also support user and key management functions. You can
+        -- plug this config into unfancy.contrib.portal_api, and it will use the
+        -- first store in this list with management support to generate an instant
+        -- self-service portal API for developers.
+        auth_stores = {
             {
-                module = "plugins.auth.postgresql",
+                module = "plugins.auth_stores.postgresql",
                 options = {
                     connection = {
                         host = "127.0.0.1",
@@ -59,7 +66,8 @@ return {
                         user = "dbuser",
                         password = "dbpassword",
                         ssl = false
-                    }
+                    },
+                    table_names = { users = "api_users", keys = "api_keys" }
                 }
             }
         }
@@ -69,6 +77,13 @@ return {
     -- after another).
     plugins = {
         after_auth = {
+            {
+                -- A plugin that makes sure that requests without a HTTP referrer
+                -- (i.e. from native apps) stick to certain kinds of keys for auth.
+                -- If a referrer is present, makes sure it matches the domain listed
+                -- as the key's "app".
+                module = "plugins.restrict_referrer"
+            },
             {
                 -- A plugin that customizes quota cost for certain paths.
                 -- The default cost (set by Unfancy at the start) is 1.

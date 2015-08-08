@@ -6,33 +6,33 @@ local str = require("resty.string")
 
 -- Every plugin module must return a builder function that constructs the
 -- plugin. The builder function receives the plugin's options table from the
--- configuration file.
-return function(options)
+-- configuration file, and the api configuration as a whole.
+return function(options, api_config)
     local Plugin = {}
 
     local pf = (options.prefix or "redis-auth") .. ":"
 
-    --- Run this plugin (during the auth phase).
-    --
-    -- This function receives an auth bit from the incoming API request and
-    -- should resolve it to its key, and from there to a quota name. Unfancy
-    -- then applies that quota. The quota is cached for the duration, so this
-    -- function is actually only called whenever the current quota window
-    -- has expired and a new request comes in.
-    --
-    -- If this returns a string, the quota with that name is applied. If such
-    -- a quota doesn't exist, the default quota is used.
-    -- If this returns true, the default quota is used.
-    -- If this returns false, access is denied.
-    --
-    -- @param ctx The current request context (persists between plugins).
-    -- @param req The incoming API HTTP request, from nginx.
-    -- @param auth The authentication bit extracted from the request (hashed key, etc).
-    -- @returns quota name, true, or false.
-    function Plugin.run(ctx, req, auth)
+    -- The following function must be supported by every auth store.
+
+    --- Get key by key id.
+    -- @param kid Unique key id.
+    -- @param auth_method Name of the auth method plugin that is requesting the
+    --          key for verification. If given, the key object must be in a format
+    --          that the auth method expects.
+    --          If nil, the key is being requested for a quota check and the returned
+    --          object must include a quota field.
+    -- @returns A key object or nil if not found.
+    function Plugin.get_key(kid, auth_method)
+        local r = helpers.get_redis()
+        local k = r:get(pf .. "key:" .. kid)
+        r:keepalive()
+        if not k or k == ngx.null then
+            return nil
+        end
+        return k.quota
     end
 
-    -- Auth plugins may support additional operations. If they do, they can
+    -- Auth store plugins may support additional operations. If they do, they can
     -- be plugged into the key management API and frontend to quickly set up
     -- your developer portal.
 
@@ -73,32 +73,48 @@ return function(options)
         return nil
     end
 
+    function Plugin.authenticate_user(email, password)
+    end
+
+    function Plugin.change_password(email, password)
+    end
+
+    function Plugin.get_user(uid)
+    end
+
+    function Plugin.update_user(uid, email, name, profile)
+    end
+
     --- Add a key for a user, optionally assigning a non-default quota.
     -- @param uid Unique user ID.
+    -- @param kind The kind of this key, in case you have several. May be nil.
+    -- @param app App or site identifier that uses this key.
     -- @param quota_name Name of a non-default quota (may be nil).
     -- @returns Unique JSON-encodable key ID, error string.
-    function Plugin.add_key(uid, quota_name)
-        local kid = str.to_hex(resty_random.bytes(32))
+    function Plugin.add_key(uid, kind, app, quota, extras)
         local q = quota_name or "default"
+        local k = {
+            kind = nil,
+            app = app,
+            quota = quota,
+            extras = extras
+        }
         local r = helpers.get_redis()
-        r:set(pf .. "key:" .. kid, q)
+        r:set(pf .. "key:" .. kid, k)
         r:sadd(pf .. "user:" .. uid .. ":keys", kid)
         r:keepalive()
         return kid, nil
     end
 
-    --- Get quota for a given key.
-    -- @param kid Unique key ID.
-    -- @returns quota name (string), true or "default" for default quota,
-    -- false for no access.
-    function Plugin.get_quota_for_key(kid)
+    function Plugin.get_keys_for_user(uid)
         local r = helpers.get_redis()
-        local q = r:get(pf .. "key:" .. kid)
-        r:keepalive()
-        if not q or q == ngx.null then
-            return false
-        end
-        return q
+        local ks = r:sadd(pf .. "user:" .. uid .. ":keys")
+    end
+
+    function Plugin.delete_key(kid)
+    end
+
+    function Plugin.delete_user(uid)
     end
 
     return Plugin

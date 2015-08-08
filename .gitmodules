@@ -10,3 +10,6 @@
 [submodule "unfancy/ext_lib/pgmoon"]
 	path = unfancy/ext_lib/pgmoon
 	url = https://github.com/leafo/pgmoon.git
+[submodule "unfancy/ext_lib/Microlight"]
+	path = unfancy/ext_lib/Microlight
+	url = https://github.com/stevedonovan/Microlight.git

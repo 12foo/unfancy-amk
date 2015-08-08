@@ -1,3 +1,7 @@
+-- Import Microlight so it's available all throughout Unfancy.
+require("unfancy.ext_lib").prepare("Microlight")
+require("ml").import()
+
 local cjson = require("cjson")
 local api_builder = require("unfancy.api")
 local config = require("unfancy_config")
