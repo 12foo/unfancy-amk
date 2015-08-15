@@ -4,6 +4,15 @@ local cjson = require("cjson")
 
 local KeyAPI = {}
 
+KeyAPI.endpoints = {
+    "/create_user" = function()
+    end,
+
+    "/get_token" = function()
+    end
+
+}
+
 function KeyAPI.api()
     local path = ngx.var[1]
     local h = require("unfancy.helpers")

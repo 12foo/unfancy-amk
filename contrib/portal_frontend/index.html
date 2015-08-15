@@ -7,6 +7,13 @@
     <body>
         <top-navbar></top-navbar>
         <portal-app></portal-app>
+        <footer class="footer">
+            <div class="container">
+                <p class="pull-right small text-muted">
+                <a href="#page/tos.md">Terms and Conditions</a> | Powered by <a href="#" target="_new">Unfancy AMK</a>, a free and open source API management toolkit.
+                </p>
+            </div>
+        </footer>
 
         <script src="tag/app.tag" type="riot/tag"></script>
         <script src="tag/user.tag" type="riot/tag"></script>
@@ -20,6 +27,8 @@
             var portalOptions = {
                 apiURL: window.location.href.substr(0, window.location.href.lastIndexOf('/')) + '/api',
                 title: 'Developer Portal',
+
+                // Links to display in the top bar.
                 links: [
                     { name: 'API Docs', url: '/path-to/your-swagger-ui' },
                     { name: 'Using Keys', page: 'howto' }
