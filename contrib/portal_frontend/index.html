@@ -1,22 +1,31 @@
 <!doctype html>
 <html>
     <head>
-        <link rel="stylesheet" href="lib/bootstrap.min.css">
+        <link rel="stylesheet" href="lib/bootstrap.min.css" type="text/css">
+        <meta charset="utf-8">
     </head>
     <body>
         <top-navbar></top-navbar>
         <portal-app></portal-app>
+
         <script src="tag/app.tag" type="riot/tag"></script>
         <script src="tag/user.tag" type="riot/tag"></script>
         <script src="tag/key.tag" type="riot/tag"></script>
-        <script src="lib/riot_compiler.min.js"></script>
-        <script>
-            var options = {
-                apiURL: window.location.href.substr(0, window.location.href.lastIndexOf('/')) + '/api',
-                portalTitle: 'Developer Portal'
-            };
 
-            riot.mount('*', options);
+        <script src="lib/marked.min.js"></script>
+        <script src="lib/promise.min.js"></script>
+        <script src="lib/riot_compiler.min.js"></script>
+
+        <script>
+            var portalOptions = {
+                apiURL: window.location.href.substr(0, window.location.href.lastIndexOf('/')) + '/api',
+                title: 'Developer Portal',
+                links: [
+                    { name: 'API Docs', url: '/path-to/your-swagger-ui' },
+                    { name: 'Using Keys', page: 'howto' }
+                ]
+            };
         </script>
+        <script src="portal.js"></script>
     </body>
 </html>
